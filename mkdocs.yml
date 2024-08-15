@@ -614,6 +614,9 @@ nav:
 
 # Plugins including 301 redirects navigation ---------------------------------------------------------------------------
 plugins:
+  - exclude:
+      glob:
+        - macros/*
   - macros
   - search:
       lang: en
