@@ -17,7 +17,7 @@ After you [train a model](./models.md#train-model), you can use the [Shared Infe
     allowfullscreen>
   </iframe>
   <br>
-  <strong>Watch:</strong> Ultralytics HUB Inference API Walkthrough
+  <strong>Watch:</strong> Ultralytics HUB Inference API Walkthrough <a href="https://www.youtube.com/watch?v=OpWpBI35A5Y" alt="YouTube Views"><img src="https://img.shields.io/youtube/views/OpWpBI35A5Y" alt="YouTube Views"></a>
 </p>
 
 ## Dedicated Inference API
