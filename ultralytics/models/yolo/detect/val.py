@@ -28,9 +28,9 @@ class DetectionValidator(BaseValidator):
         ```
     """
 
-    def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None):
+    def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None, input_Ch=3):
         """Initialize detection model with necessary variables and settings."""
-        super().__init__(dataloader, save_dir, pbar, args, _callbacks)
+        super().__init__(dataloader, save_dir, pbar, args, _callbacks, input_Ch=input_Ch)
         self.nt_per_class = None
         self.nt_per_image = None
         self.is_coco = False
@@ -50,7 +50,17 @@ class DetectionValidator(BaseValidator):
     def preprocess(self, batch):
         """Preprocesses batch of images for YOLO training."""
         batch["img"] = batch["img"].to(self.device, non_blocking=True)
-        batch["img"] = (batch["img"].half() if self.args.half else batch["img"].float()) / 255
+        if self.args.half:
+            batch["img"] = batch["img"].half()
+        elif (
+            batch["img"].dtype == torch.float32
+            or batch["img"].dtype == torch.float64
+            or batch["img"].dtype == torch.float16
+        ):  # already a float
+            pass
+        else:
+            batch["img"] = batch["img"].float() / 255.0
+
         for k in ["batch_idx", "cls", "bboxes"]:
             batch[k] = batch[k].to(self.device)
 
@@ -236,7 +246,16 @@ class DetectionValidator(BaseValidator):
             mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
             batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
         """
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, stride=self.stride)
+        return build_yolo_dataset(
+            self.args,
+            img_path,
+            batch,
+            self.data,
+            mode=mode,
+            stride=self.stride,
+            override_label_transforms=self.override_label_transforms,
+            append_label_transforms=self.append_label_transforms,
+        )
 
     def get_dataloader(self, dataset_path, batch_size):
         """Construct and return dataloader."""

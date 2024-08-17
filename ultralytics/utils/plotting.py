@@ -982,7 +982,9 @@ def plot_images(
     if isinstance(batch_idx, torch.Tensor):
         batch_idx = batch_idx.cpu().numpy()
 
-    bs, _, h, w = images.shape  # batch size, _, height, width
+    bs, chs, h, w = images.shape  # batch size, chs, height, width
+    if chs != 3:
+        return None  # 3 channel images only
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs**0.5)  # number of subplots (square)
     if np.max(images[0]) <= 1:

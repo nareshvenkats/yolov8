@@ -174,12 +174,21 @@ class YOLODataset(BaseDataset):
 
     def build_transforms(self, hyp=None):
         """Builds and appends transforms to the list."""
+        if self.override_label_transforms != None or self.append_label_transforms != None:
+            LOGGER.info("Transformation override detected. Setting BGR flip probability to 0")
+            bgr = 0
+
+        if self.override_label_transforms != None:
+            return self.override_label_transforms
+
         if self.augment:
             hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
             transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+        bgr = hyp.bgr if self.augment else 0.0  # only affect training.
+
         transforms.append(
             Format(
                 bbox_format="xywh",
@@ -190,9 +199,13 @@ class YOLODataset(BaseDataset):
                 batch_idx=True,
                 mask_ratio=hyp.mask_ratio,
                 mask_overlap=hyp.overlap_mask,
-                bgr=hyp.bgr if self.augment else 0.0,  # only affect training.
+                bgr=bgr,
             )
         )
+        if self.append_label_transforms:
+            LOGGER.info(f"Appending custom image transform: {self.append_label_transforms}")
+            transforms.append(self.append_label_transforms)
+        LOGGER.info(f"Complete list of transforms to be applied:\n{transforms}")
         return transforms
 
     def close_mosaic(self, hyp):
@@ -273,6 +286,8 @@ class YOLOMultiModalDataset(YOLODataset):
     def build_transforms(self, hyp=None):
         """Enhances data transformations with optional text augmentation for multi-modal training."""
         transforms = super().build_transforms(hyp)
+        if self.override_label_transforms != None:
+            return transforms
         if self.augment:
             # NOTE: hard-coded the args for now.
             transforms.insert(-1, RandomLoadText(max_samples=min(self.data["nc"], 80), padding=True))
@@ -402,7 +417,16 @@ class ClassificationDataset:
         torch_transforms (callable): PyTorch transforms to be applied to the images.
     """
 
-    def __init__(self, root, args, augment=False, prefix=""):
+    def __init__(
+        self,
+        root,
+        args,
+        augment=False,
+        cache=False,
+        prefix="",
+        override_label_tranforms=None,
+        append_label_transforms=None,
+    ):
         """
         Initialize YOLO object with root, image size, augmentations, and cache settings.
 
@@ -440,22 +464,28 @@ class ClassificationDataset:
         self.cache_disk = str(args.cache).lower() == "disk"  # cache images on hard drive as uncompressed *.npy files
         self.samples = self.verify_images()  # filter out bad images
         self.samples = [list(x) + [Path(x[0]).with_suffix(".npy"), None] for x in self.samples]  # file, index, npy, im
-        scale = (1.0 - args.scale, 1.0)  # (0.08, 1.0)
-        self.torch_transforms = (
-            classify_augmentations(
-                size=args.imgsz,
-                scale=scale,
-                hflip=args.fliplr,
-                vflip=args.flipud,
-                erasing=args.erasing,
-                auto_augment=args.auto_augment,
-                hsv_h=args.hsv_h,
-                hsv_s=args.hsv_s,
-                hsv_v=args.hsv_v,
+
+        if override_label_tranforms is not None:
+            self.torch_transforms = override_label_tranforms
+        else:
+            scale = (1.0 - args.scale, 1.0)  # (0.08, 1.0)
+            self.torch_transforms = (
+                classify_augmentations(
+                    size=args.imgsz,
+                    scale=scale,
+                    hflip=args.fliplr,
+                    vflip=args.flipud,
+                    erasing=args.erasing,
+                    auto_augment=args.auto_augment,
+                    hsv_h=args.hsv_h,
+                    hsv_s=args.hsv_s,
+                    hsv_v=args.hsv_v,
+                )
+                if augment
+                else classify_transforms(size=args.imgsz, crop_fraction=args.crop_fraction)
             )
-            if augment
-            else classify_transforms(size=args.imgsz, crop_fraction=args.crop_fraction)
-        )
+        if append_label_transforms != None:
+            self.torch_transforms = torchvision.transforms.Compose([self.torch_transforms, append_label_transforms])
 
     def __getitem__(self, i):
         """Returns subset of data and targets corresponding to given indices."""

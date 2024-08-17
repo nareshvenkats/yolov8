@@ -28,14 +28,21 @@ class ClassificationTrainer(BaseTrainer):
         ```
     """
 
-    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(
+        self,
+        cfg=DEFAULT_CFG,
+        overrides=None,
+        _callbacks=None,
+        override_label_transforms=None,
+        append_label_transforms=None,
+    ):
         """Initialize a ClassificationTrainer object with optional configuration overrides and callbacks."""
         if overrides is None:
             overrides = {}
         overrides["task"] = "classify"
         if overrides.get("imgsz") is None:
             overrides["imgsz"] = 224
-        super().__init__(cfg, overrides, _callbacks)
+        super().__init__(cfg, overrides, _callbacks, override_label_transforms, append_label_transforms)
 
     def set_model_attributes(self):
         """Set the YOLO model's class names from the loaded dataset."""
@@ -43,7 +50,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Returns a modified PyTorch model configured for training YOLO."""
-        model = ClassificationModel(cfg, nc=self.data["nc"], verbose=verbose and RANK == -1)
+        model = ClassificationModel(cfg, self.input_Ch, nc=self.data["nc"], verbose=verbose and RANK == -1)
         if weights:
             model.load(weights)
 
@@ -72,7 +79,14 @@ class ClassificationTrainer(BaseTrainer):
 
     def build_dataset(self, img_path, mode="train", batch=None):
         """Creates a ClassificationDataset instance given an image path, and mode (train/test etc.)."""
-        return ClassificationDataset(root=img_path, args=self.args, augment=mode == "train", prefix=mode)
+        return ClassificationDataset(
+            root=img_path,
+            args=self.args,
+            augment=mode == "train",
+            prefix=mode,
+            override_label_tranforms=self.override_label_transforms,
+            append_label_transforms=self.append_label_transforms,
+        )
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         """Returns PyTorch DataLoader with transforms to preprocess images for inference."""
@@ -107,7 +121,14 @@ class ClassificationTrainer(BaseTrainer):
     def get_validator(self):
         """Returns an instance of ClassificationValidator for validation."""
         self.loss_names = ["loss"]
-        return yolo.classify.ClassificationValidator(self.test_loader, self.save_dir, _callbacks=self.callbacks)
+        return yolo.classify.ClassificationValidator(
+            self.test_loader,
+            self.save_dir,
+            override_label_transforms=self.override_label_transforms,
+            append_label_transforms=self.append_label_transforms,
+            input_Ch=self.input_Ch,
+            _callbacks=self.callbacks,
+        )
 
     def label_loss_items(self, loss_items=None, prefix="train"):
         """
@@ -141,10 +162,15 @@ class ClassificationTrainer(BaseTrainer):
 
     def plot_training_samples(self, batch, ni):
         """Plots training samples with their annotations."""
-        plot_images(
-            images=batch["img"],
-            batch_idx=torch.arange(len(batch["img"])),
-            cls=batch["cls"].view(-1),  # warning: use .view(), not .squeeze() for Classify models
-            fname=self.save_dir / f"train_batch{ni}.jpg",
-            on_plot=self.on_plot,
-        )
+        if self.input_Ch == 3:
+            plot_images(
+                images=batch["img"],
+                batch_idx=torch.arange(len(batch["img"])),
+                cls=batch["cls"].view(-1),  # warning: use .view(), not .squeeze() for Classify models
+                fname=self.save_dir / f"train_batch{ni}.jpg",
+                on_plot=self.on_plot,
+            )
+        else:
+            if not self.loggedNonStandardChMsg:
+                LOGGER.info("Skipping plotting training samples for images that do not have 3 input channels.")
+                self.loggedNonStandardChMsg = True
