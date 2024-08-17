@@ -1248,7 +1248,7 @@ class RandomPerspective:
         new_instances.clip(*self.size)
 
         # Filter instances
-        instances.scale(scale_w=scale, scale_h=scale, bbox_only=True)
+        instances.scaleSingle(scale=scale, bbox_only=True)
         # Make the bboxes have the same scale with new_bboxes
         i = self.box_candidates(
             box1=instances.bboxes.T, box2=new_instances.bboxes.T, area_thr=0.01 if len(segments) else 0.10
@@ -1623,7 +1623,7 @@ class LetterBox:
         """
         labels["instances"].convert_bbox(format="xyxy")
         labels["instances"].denormalize(*labels["img"].shape[:2][::-1])
-        labels["instances"].scale(*ratio)
+        labels["instances"].scaleWH(ratio[0], ratio[1])
         labels["instances"].add_padding(padw, padh)
         return labels
 
@@ -2280,20 +2280,24 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         >>> transforms = v8_transforms(dataset, imgsz=640, hyp=hyp)
         >>> augmented_data = transforms(dataset[0])
     """
-    pre_transform = Compose(
-        [
-            Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic),
-            CopyPaste(p=hyp.copy_paste),
-            RandomPerspective(
-                degrees=hyp.degrees,
-                translate=hyp.translate,
-                scale=hyp.scale,
-                shear=hyp.shear,
-                perspective=hyp.perspective,
-                pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
-            ),
-        ]
+    pre_transform = []
+    if hyp.mosaic != 0:
+        pre_transform.append(Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic))
+    if hyp.copy_paste != 0:
+        pre_transform.append(CopyPaste(p=hyp.copy_paste))
+    pre_transform.append(
+        RandomPerspective(
+            degrees=hyp.degrees,
+            translate=hyp.translate,
+            scale=hyp.scale,
+            shear=hyp.shear,
+            perspective=hyp.perspective,
+            pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
+        )
     )
+
+    pre_transform = Compose(pre_transform)
+
     flip_idx = dataset.data.get("flip_idx", [])  # for keypoints augmentation
     if dataset.use_keypoints:
         kpt_shape = dataset.data.get("kpt_shape", None)
@@ -2303,16 +2307,18 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
             raise ValueError(f"data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}")
 
-    return Compose(
-        [
-            pre_transform,
-            MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
-            Albumentations(p=1.0),
-            RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
-            RandomFlip(direction="vertical", p=hyp.flipud),
-            RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
-        ]
-    )  # transforms
+    transformList = [pre_transform]
+    if hyp.mixup != 0:
+        transformList.append(MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup))
+
+    transformList.append(Albumentations(p=1.0))
+    transformList.append(RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v))
+
+    if hyp.flipud != 0:
+        transformList.append(RandomFlip(direction="vertical", p=hyp.flipud))
+    if hyp.fliplr != 0:
+        transformList.append(RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx))
+    return Compose(transformList)  # transforms
 
 
 # Classification augmentations -----------------------------------------------------------------------------------------

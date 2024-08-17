@@ -100,7 +100,8 @@ class Bboxes:
             scale (tuple | list | int): the scale for four coords.
         """
         if isinstance(scale, Number):
-            scale = to_4tuple(scale)
+            self.bboxes[:, 0:4] *= scale
+            return
         assert isinstance(scale, (tuple, list))
         assert len(scale) == 4
         self.bboxes[:, 0] *= scale[0]
@@ -114,7 +115,8 @@ class Bboxes:
             offset (tuple | list | int): the offset for four coords.
         """
         if isinstance(offset, Number):
-            offset = to_4tuple(offset)
+            self.bboxes[:, 0:4] += offset
+            return
         assert isinstance(offset, (tuple, list))
         assert len(offset) == 4
         self.bboxes[:, 0] += offset[0]
@@ -229,24 +231,36 @@ class Instances:
         """Calculate the area of bounding boxes."""
         return self._bboxes.areas()
 
-    def scale(self, scale_w, scale_h, bbox_only=False):
+    def scaleWH(self, scale_w, scale_h, bbox_only=False):
         """This might be similar with denormalize func but without normalized sign."""
         self._bboxes.mul(scale=(scale_w, scale_h, scale_w, scale_h))
         if bbox_only:
             return
-        self.segments[..., 0] *= scale_w
-        self.segments[..., 1] *= scale_h
+        if self.segments is not None:
+            self.segments[..., 0] *= scale_w
+            self.segments[..., 1] *= scale_h
         if self.keypoints is not None:
             self.keypoints[..., 0] *= scale_w
             self.keypoints[..., 1] *= scale_h
+
+    def scaleSingle(self, scale, bbox_only=False):
+        """This might be similar with denormalize func but without normalized sign."""
+        self._bboxes.bboxes[:, 0:4] *= scale
+        if bbox_only:
+            return
+        if self.segments is not None:
+            self.segments[..., 0:2] *= scale
+        if self.keypoints is not None:
+            self.keypoints[..., 0:2] *= scale
 
     def denormalize(self, w, h):
         """Denormalizes boxes, segments, and keypoints from normalized coordinates."""
         if not self.normalized:
             return
         self._bboxes.mul(scale=(w, h, w, h))
-        self.segments[..., 0] *= w
-        self.segments[..., 1] *= h
+        if len(self.segments):
+            self.segments[..., 0] *= w
+            self.segments[..., 1] *= h
         if self.keypoints is not None:
             self.keypoints[..., 0] *= w
             self.keypoints[..., 1] *= h
@@ -268,8 +282,9 @@ class Instances:
         """Handle rect and mosaic situation."""
         assert not self.normalized, "you should add padding with absolute coordinates."
         self._bboxes.add(offset=(padw, padh, padw, padh))
-        self.segments[..., 0] += padw
-        self.segments[..., 1] += padh
+        if len(self.segments):
+            self.segments[..., 0] += padw
+            self.segments[..., 1] += padh
         if self.keypoints is not None:
             self.keypoints[..., 0] += padw
             self.keypoints[..., 1] += padh
